@@ -1,0 +1,38 @@
+---
+# Example: Basic System Setup Playbook
+- name: Basic Ubuntu System Setup
+  hosts: local
+  gather_facts: yes
+  become: yes
+  
+  tasks:
+    - name: Update apt package cache
+      ansible.builtin.apt:
+        update_cache: yes
+        cache_valid_time: 3600
+    
+    - name: Install essential development tools
+      ansible.builtin.apt:
+        name:
+          - curl
+          - wget
+          - git
+          - htop
+          - tree
+        state: present
+    
+    - name: Create development workspace
+      ansible.builtin.file:
+        path: "{{ ansible_env.HOME }}/development"
+        state: directory
+        mode: '0755'
+        owner: "{{ ansible_env.USER }}"
+      become: no
+    
+    - name: Display system information
+      ansible.builtin.debug:
+        msg: |
+          System configured successfully!
+          OS: {{ ansible_distribution }} {{ ansible_distribution_version }}
+          Hostname: {{ ansible_hostname }}
+          User: {{ ansible_env.USER }}

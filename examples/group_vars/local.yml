@@ -1,0 +1,31 @@
+---
+# Variables for the 'local' group (localhost testing)
+
+# Web server configuration
+web_packages:
+  - nginx
+  - curl
+  - wget
+web_port: 8080
+web_user: www-data
+web_root: /var/www/html
+
+# Development tools  
+dev_packages:
+  - git
+  - htop
+  - tree
+  - vim
+  - build-essential
+
+# System settings
+server_timezone: America/New_York
+max_file_descriptors: 65536
+
+# Application settings
+app_name: "ansible-learning-app"
+app_version: "1.0.0"
+app_environment: "development"
+
+# Custom messages
+welcome_message: "Welcome to my Ansible-managed Ubuntu system!"
