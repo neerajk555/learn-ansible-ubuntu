@@ -69,6 +69,17 @@ Each lesson follows a consistent format:
 3. **Follow sequentially**: Each lesson builds on previous concepts
 4. **Practice**: Complete all hands-on exercises for best results
 
+## 🧭 Why localhost? Local vs web server
+
+We start on localhost (your own Ubuntu machine/VM) because it’s fast, safe, and requires no SSH setup. Ansible can run tasks directly on the control node when you set `ansible_connection=local`, so there’s no network dependency. The same playbooks later work on real servers—just switch your inventory to remote hosts and use SSH.
+
+- Localhost: runs tasks locally with `ansible_connection=local` (no SSH)
+- Remote web server: runs tasks over SSH to another machine
+- Privileges: `become: yes` still uses sudo locally or remotely
+- Inventory: `localhost` entry vs. IP/hostnames for real servers
+
+Read the detailed guide with examples and pitfalls: [docs/localhost-vs-webserver.md](docs/localhost-vs-webserver.md)
+
 ## 💻 What You'll Build
 
 By the end of this course, you'll have:

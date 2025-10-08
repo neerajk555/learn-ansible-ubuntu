@@ -20,6 +20,27 @@ In this exercise, you'll create an Ansible playbook that:
 4. Creates a sample Node.js project
 5. Verifies everything works correctly
 
+### Why we use localhost for this exercise
+
+You’ll run this entirely on localhost (your Ubuntu machine/VM) so you can learn fast without SSH or extra servers.
+
+- Ansible executes tasks locally when you target a host with `ansible_connection=local`.
+- Same playbook logic works on real servers later—just change the inventory.
+- You may still need `become: yes` for package installs (sudo).
+
+Inventory entry used in this course:
+
+```ini
+[local]
+localhost ansible_connection=local
+```
+
+Then your playbook uses:
+
+```yaml
+hosts: local
+```
+
 ## 📝 Step-by-Step Implementation
 
 ### Step 1: Create the Node.js Installation Playbook
