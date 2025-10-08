@@ -1,0 +1,77 @@
+---
+- name: Install Apache with robust error handling
+  hosts: ssh_local
+  become: yes
+  gather_facts: yes
+
+  tasks:
+    - name: Kill any stuck apt processes
+      shell: |
+        pkill apt || true
+        pkill apt-get || true
+        pkill dpkg || true
+      changed_when: false
+      failed_when: false
+
+    - name: Remove apt lock files if they exist
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /var/lib/apt/lists/lock
+        - /var/cache/apt/archives/lock
+        - /var/lib/dpkg/lock
+        - /var/lib/dpkg/lock-frontend
+      failed_when: false
+
+    - name: Configure dpkg if needed
+      command: dpkg --configure -a
+      failed_when: false
+      changed_when: false
+
+    - name: Update apt cache with retry
+      apt:
+        update_cache: yes
+        cache_valid_time: 0
+      retries: 3
+      delay: 5
+      register: apt_update_result
+      until: apt_update_result is succeeded
+
+    - name: Install Apache with retry
+      apt:
+        name: apache2
+        state: present
+        update_cache: no
+      retries: 3
+      delay: 5
+
+    - name: Start and enable Apache
+      service:
+        name: apache2
+        state: started
+        enabled: yes
+
+    - name: Wait for Apache to be ready
+      wait_for:
+        port: 80
+        host: 127.0.0.1
+        timeout: 30
+
+    - name: Create custom index.html
+      copy:
+        dest: /var/www/html/index.html
+        content: |
+          <h1>Apache installed via Ansible (Robust Version) 🎉</h1>
+          <p>Host: {{ inventory_hostname }}</p>
+          <p>OS: {{ ansible_facts.distribution }} {{ ansible_facts.distribution_version }}</p>
+          <p>Date: {{ ansible_date_time.date }} {{ ansible_date_time.time }}</p>
+          <p>Apache Status: Running ✅</p>
+        mode: '0644'
+      notify: restart apache
+
+  handlers:
+    - name: restart apache
+      service:
+        name: apache2
+        state: restarted

@@ -680,6 +680,187 @@ sudo tail -f /var/log/apache2/error.log
 
 ## 🧪 Advanced Variations and Troubleshooting
 
+### Common Ansible/Apache Issues
+
+#### Issue: "Failed to update apt cache: unknown reason"
+
+This is a common error when running the Apache installation playbook.
+
+**Immediate Diagnostic Steps:**
+```bash
+# Step 1: Check if you can SSH and run basic commands
+ssh 127.0.0.1 "whoami && date"
+
+# Step 2: Check current apt status
+ssh 127.0.0.1 "sudo apt list --upgradable | head -5"
+
+# Step 3: Check for apt locks
+ssh 127.0.0.1 "sudo lsof /var/lib/dpkg/lock* 2>/dev/null || echo 'No locks found'"
+
+# Step 4: Test manual apt update
+ssh 127.0.0.1 "sudo apt update"
+```
+
+**Quick Fix Methods:**
+```bash
+# Method 1: Clean and update apt manually first
+ssh 127.0.0.1 "sudo apt clean && sudo apt update"
+
+# Method 2: Kill stuck processes and retry
+ssh 127.0.0.1 "sudo pkill apt; sudo pkill dpkg; sudo apt update" 
+
+# Method 3: Use the robust playbook (handles errors automatically)
+ansible-playbook -i examples/inventory-ssh-local.ini examples/apache-ssh-robust.yml -K
+```
+
+**Root Causes and Solutions:**
+
+**1. Repository Connection Issues:**
+```bash
+# Check internet connectivity
+ping -c 3 8.8.8.8
+
+# Check DNS resolution
+nslookup archive.ubuntu.com
+
+# Test repository access
+curl -I http://archive.ubuntu.com/ubuntu/
+```
+
+**2. Locked apt Database:**
+```bash
+# Check for running apt processes
+ps aux | grep apt
+
+# Kill stuck apt processes (be careful!)
+sudo pkill apt
+sudo pkill apt-get
+sudo pkill dpkg
+
+# Remove lock files if necessary
+sudo rm /var/lib/apt/lists/lock
+sudo rm /var/cache/apt/archives/lock
+sudo rm /var/lib/dpkg/lock*
+
+# Reconfigure dpkg if corrupted
+sudo dpkg --configure -a
+```
+
+**3. Repository List Issues:**
+```bash
+# Check repository sources
+cat /etc/apt/sources.list
+ls /etc/apt/sources.list.d/
+
+# Reset to default Ubuntu repositories
+sudo cp /etc/apt/sources.list /etc/apt/sources.list.backup
+sudo sed -i 's/^deb-src/#deb-src/' /etc/apt/sources.list
+sudo apt update
+```
+
+**Improved Apache Playbook (with error handling):**
+
+Create `examples/apache-ssh-robust.yml`:
+```yaml
+---
+- name: Install Apache with robust error handling
+  hosts: ssh_local
+  become: yes
+  gather_facts: yes
+
+  tasks:
+    - name: Kill any stuck apt processes
+      shell: |
+        pkill apt || true
+        pkill apt-get || true
+        pkill dpkg || true
+      changed_when: false
+      failed_when: false
+
+    - name: Remove apt lock files if they exist
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /var/lib/apt/lists/lock
+        - /var/cache/apt/archives/lock
+        - /var/lib/dpkg/lock
+        - /var/lib/dpkg/lock-frontend
+      failed_when: false
+
+    - name: Configure dpkg if needed
+      command: dpkg --configure -a
+      failed_when: false
+      changed_when: false
+
+    - name: Update apt cache with retry
+      apt:
+        update_cache: yes
+        cache_valid_time: 0
+      retries: 3
+      delay: 5
+      register: apt_update_result
+      until: apt_update_result is succeeded
+
+    - name: Install Apache with retry
+      apt:
+        name: apache2
+        state: present
+        update_cache: no
+      retries: 3
+      delay: 5
+
+    - name: Start and enable Apache
+      service:
+        name: apache2
+        state: started
+        enabled: yes
+
+    - name: Wait for Apache to be ready
+      wait_for:
+        port: 80
+        host: 127.0.0.1
+        timeout: 30
+
+    - name: Create custom index.html
+      copy:
+        dest: /var/www/html/index.html
+        content: |
+          <h1>Apache installed via Ansible (Robust Version) 🎉</h1>
+          <p>Host: {{ inventory_hostname }}</p>
+          <p>OS: {{ ansible_facts.distribution }} {{ ansible_facts.distribution_version }}</p>
+          <p>Date: {{ ansible_date_time.date }} {{ ansible_date_time.time }}</p>
+          <p>Apache Status: Running ✅</p>
+        mode: '0644'
+      notify: restart apache
+
+  handlers:
+    - name: restart apache
+      service:
+        name: apache2
+        state: restarted
+```
+
+**Run the robust version:**
+```bash
+ansible-playbook -i examples/inventory-ssh-local.ini examples/apache-ssh-robust.yml -K
+```
+
+**Automated Troubleshooting Scripts:**
+
+We've included helper scripts to diagnose and fix common issues:
+
+```bash
+# Make scripts executable
+chmod +x exercises/troubleshoot-apache.sh exercises/fix-apt-cache.sh
+
+# Run diagnostic script
+./exercises/troubleshoot-apache.sh
+
+# Run automatic fix script
+./exercises/fix-apt-cache.sh
+```
+
 ### Common SSH Issues
 ```bash
 # Issue: SSH connection refused
