@@ -1,0 +1,132 @@
+---
+# Comprehensive Node.js Development Environment Setup
+# Includes NodeSource repository, global packages, and sample project
+- name: Install and Configure Node.js Development Environment
+  hosts: local
+  become: yes
+  gather_facts: yes
+  
+  vars:
+    nodejs_version: "20"  # LTS version
+    global_packages:
+      - "@angular/cli"
+      - "create-react-app"
+      - "express-generator"
+      - "nodemon"
+      - "pm2"
+    project_directory: "{{ ansible_env.HOME }}/nodejs-projects"
+    sample_app_name: "ansible-node-app"
+  
+  tasks:
+    # Install from NodeSource for latest version
+    - name: Install required packages for NodeSource repository
+      ansible.builtin.apt:
+        name:
+          - curl
+          - software-properties-common
+          - ca-certificates
+          - gnupg
+        state: present
+        update_cache: yes
+    
+    - name: Download NodeSource setup script
+      ansible.builtin.get_url:
+        url: "https://deb.nodesource.com/setup_{{ nodejs_version }}.x"
+        dest: /tmp/nodesource_setup.sh
+        mode: '0755'
+    
+    - name: Run NodeSource setup script
+      ansible.builtin.command: /tmp/nodesource_setup.sh
+      args:
+        creates: /etc/apt/sources.list.d/nodesource.list
+    
+    - name: Install Node.js from NodeSource repository
+      ansible.builtin.apt:
+        name: nodejs
+        state: latest
+        update_cache: yes
+    
+    # Development environment setup
+    - name: Create Node.js projects directory
+      ansible.builtin.file:
+        path: "{{ project_directory }}"
+        state: directory
+        mode: '0755'
+        owner: "{{ ansible_env.USER }}"
+        group: "{{ ansible_env.USER }}"
+      become: no
+    
+    - name: Install global npm packages
+      ansible.builtin.npm:
+        name: "{{ item }}"
+        global: yes
+        state: present
+      loop: "{{ global_packages }}"
+    
+    # Create sample Express.js project
+    - name: Create sample application directory
+      ansible.builtin.file:
+        path: "{{ project_directory }}/{{ sample_app_name }}"
+        state: directory
+        mode: '0755'
+        owner: "{{ ansible_env.USER }}"
+        group: "{{ ansible_env.USER }}"
+      become: no
+    
+    - name: Create package.json for sample app
+      ansible.builtin.copy:
+        dest: "{{ project_directory }}/{{ sample_app_name }}/package.json"
+        content: |
+          {
+            "name": "{{ sample_app_name }}",
+            "version": "1.0.0",
+            "description": "Sample Node.js app created by Ansible",
+            "main": "app.js",
+            "scripts": {
+              "start": "node app.js",
+              "dev": "nodemon app.js"
+            },
+            "dependencies": {
+              "express": "^4.18.0"
+            },
+            "keywords": ["ansible", "nodejs", "express"],
+            "author": "Ansible Automation",
+            "license": "MIT"
+          }
+        owner: "{{ ansible_env.USER }}"
+        group: "{{ ansible_env.USER }}"
+        mode: '0644'
+      become: no
+    
+    - name: Install project dependencies
+      ansible.builtin.npm:
+        path: "{{ project_directory }}/{{ sample_app_name }}"
+        state: present
+      become: no
+    
+    # Verification
+    - name: Get Node.js version
+      ansible.builtin.command: node --version
+      register: node_version
+      changed_when: false
+      become: no
+    
+    - name: Get npm version
+      ansible.builtin.command: npm --version
+      register: npm_version
+      changed_when: false
+      become: no
+    
+    - name: Display installation results
+      ansible.builtin.debug:
+        msg: |
+          === NODE.JS INSTALLATION COMPLETE ===
+          Node.js Version: {{ node_version.stdout }}
+          npm Version: {{ npm_version.stdout }}
+          Project Directory: {{ project_directory }}
+          Sample App: {{ project_directory }}/{{ sample_app_name }}
+          
+          🚀 To test your app:
+          1. cd {{ project_directory }}/{{ sample_app_name }}
+          2. npm start
+          3. Open http://localhost:3000

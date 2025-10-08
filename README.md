@@ -103,6 +103,20 @@ ansible-01/
 └── README.md         # This file
 ```
 
+## 🎯 Bonus Exercises
+
+Ready for additional challenges? Try these practical exercises:
+
+| Exercise | Topic | Difficulty | Duration |
+|----------|-------|------------|----------|
+| [Node.js Installation](exercises/nodejs-installation.md) | Automated Node.js and npm setup with sample app | Beginner | 45 min |
+
+More exercises coming soon! Each exercise includes:
+- Complete playbook examples
+- Step-by-step instructions
+- Troubleshooting guides
+- Challenge variations for extra practice
+
 ### Example Files Provided
 - Complete Ansible playbooks for each lesson
 - Template files (Nginx configs, HTML, PHP apps)  

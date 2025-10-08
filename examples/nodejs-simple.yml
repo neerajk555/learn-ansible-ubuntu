@@ -1,0 +1,44 @@
+---
+# Simple Node.js Installation Playbook
+# Perfect for beginners - installs Node.js from Ubuntu repositories
+- name: Simple Node.js Installation
+  hosts: local
+  become: yes
+  gather_facts: yes
+  
+  tasks:
+    - name: Update package cache
+      ansible.builtin.apt:
+        update_cache: yes
+        cache_valid_time: 3600
+    
+    - name: Install Node.js and npm
+      ansible.builtin.apt:
+        name:
+          - nodejs
+          - npm
+        state: present
+    
+    - name: Verify Node.js installation
+      ansible.builtin.command: node --version
+      register: node_check
+      changed_when: false
+      become: no
+    
+    - name: Verify npm installation
+      ansible.builtin.command: npm --version
+      register: npm_check
+      changed_when: false
+      become: no
+    
+    - name: Show installation results
+      ansible.builtin.debug:
+        msg: |
+          ✅ Node.js installed: {{ node_check.stdout }}
+          ✅ npm installed: {{ npm_check.stdout }}
+          
+          🚀 Next steps:
+          1. Create a project: mkdir my-app && cd my-app
+          2. Initialize: npm init -y
+          3. Install packages: npm install express
+          4. Start coding!
