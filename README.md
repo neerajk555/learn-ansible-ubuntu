@@ -121,6 +121,7 @@ Ready for additional challenges? Try these practical exercises:
 | Exercise | Topic | Difficulty | Duration |
 |----------|-------|------------|----------|
 | [Node.js Installation](exercises/nodejs-installation.md) | Automated Node.js and npm setup with sample app | Beginner | 45 min |
+| [Node.js on Remote Server](exercises/nodejs-remote-installation.md) | SSH-based install with inventory, Python bootstrap, and sample app | Intermediate | 60 min |
 
 More exercises coming soon! Each exercise includes:
 - Complete playbook examples

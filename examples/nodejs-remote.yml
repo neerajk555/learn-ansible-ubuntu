@@ -1,0 +1,121 @@
+---
+# Install Node.js on remote hosts via SSH using NodeSource LTS
+- name: Install Node.js on remote servers (NodeSource LTS)
+  hosts: remote
+  become: yes
+  gather_facts: false
+
+  pre_tasks:
+    - name: Ensure Python is available (required by Ansible)
+      raw: |
+        if command -v python3 >/dev/null 2>&1; then
+          echo 'python3 present'
+        elif command -v apt >/dev/null 2>&1; then
+          apt update -y && apt install -y python3
+        elif command -v dnf >/dev/null 2>&1; then
+          dnf install -y python3
+        elif command -v yum >/dev/null 2>&1; then
+          yum install -y python3
+        fi
+      changed_when: false
+
+    - name: Gather facts after python install
+      setup:
+
+  vars:
+    nodejs_version: "20"
+    project_dir: "/opt/nodejs-projects"
+    app_name: "ansible-node-app"
+    global_packages:
+      - nodemon
+      - pm2
+
+  tasks:
+    - name: Install prerequisites (Debian/Ubuntu)
+      apt:
+        name:
+          - curl
+          - ca-certificates
+          - gnupg
+          - software-properties-common
+        state: present
+        update_cache: yes
+      when: ansible_facts.os_family == 'Debian'
+
+    - name: Download NodeSource setup script
+      get_url:
+        url: "https://deb.nodesource.com/setup_{{ nodejs_version }}.x"
+        dest: /tmp/nodesource_setup.sh
+        mode: '0755'
+      when: ansible_facts.os_family == 'Debian'
+
+    - name: Run NodeSource setup script
+      command: /tmp/nodesource_setup.sh
+      args:
+        creates: /etc/apt/sources.list.d/nodesource.list
+      when: ansible_facts.os_family == 'Debian'
+
+    - name: Install Node.js (Debian/Ubuntu)
+      apt:
+        name: nodejs
+        state: latest
+        update_cache: yes
+      when: ansible_facts.os_family == 'Debian'
+
+    - name: Create project directory
+      file:
+        path: "{{ project_dir }}/{{ app_name }}"
+        state: directory
+        mode: '0755'
+
+    - name: Create app.js
+      copy:
+        dest: "{{ project_dir }}/{{ app_name }}/app.js"
+        mode: '0644'
+        content: |
+          const http = require('http');
+          const os = require('os');
+          const port = 3000;
+          const server = http.createServer((req, res) => {
+            if (req.url === '/api/status') {
+              res.setHeader('Content-Type', 'application/json');
+              return res.end(JSON.stringify({ status: 'OK', host: os.hostname(), ts: new Date().toISOString() }));
+            }
+            res.end(`Node.js running on ${os.hostname()} (v${process.versions.node})`);
+          });
+          server.listen(port, () => console.log(`Server listening on port ${port}`));
+
+    - name: Create package.json
+      copy:
+        dest: "{{ project_dir }}/{{ app_name }}/package.json"
+        mode: '0644'
+        content: |
+          {
+            "name": "{{ app_name }}",
+            "version": "1.0.0",
+            "main": "app.js",
+            "scripts": {
+              "start": "node app.js"
+            },
+            "dependencies": {}
+          }
+
+    - name: Install dependencies
+      npm:
+        path: "{{ project_dir }}/{{ app_name }}"
+        state: present
+
+    - name: Install useful global packages
+      npm:
+        name: "{{ item }}"
+        global: yes
+        state: present
+      loop: "{{ global_packages }}"
+
+    - name: Check Node.js version
+      command: node --version
+      register: node_v
+      changed_when: false
+
+    - debug:
+        msg: "Installed Node.js {{ node_v.stdout }} on {{ inventory_hostname }}; app at {{ project_dir }}/{{ app_name }}"
