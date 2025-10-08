@@ -1,8 +1,11 @@
-# Exercis## ✅ Prerequisites
+# Exercise: Install Apache over SSH to Localhost (127.0.0.1) - REVISED
+
+## ✅ Prerequisites
 - Ubuntu/Debian (or a Linux with package manager) on the same machine
 - Ansible installed on the controller (this machine)
 - SSH server (sshd) running locally and accepting connections
 - A user with sudo privileges (passwordless sudo recommended for smoother runs)
+- Internet connection for package downloads
 
 ## 🔑 Step 1: Establish SSH Connectivity to Localhost
 
@@ -587,54 +590,344 @@ PLAY RECAP ****
 ```
 
 ## 📄 Step 4: Write Apache Installation Playbook
-Create `examples/apache-ssh.yml`:
 
-```yaml
+### 4.1 Simple Playbook (Recommended First Approach)
+
+Create `examples/apache-ssh-simple.yml`:
+
+```bash
+cat > examples/apache-ssh-simple.yml << 'EOF'
 ---
-- name: Install and start Apache over SSH (localhost)
+- name: Install Apache via SSH (Simple Method)
   hosts: ssh_local
   become: yes
   gather_facts: yes
 
   tasks:
-    - name: Update apt cache (Debian/Ubuntu)
-      ansible.builtin.apt:
-        update_cache: yes
-      when: ansible_facts.os_family == 'Debian'
+    - name: Ensure apt is unlocked and clean
+      shell: |
+        pkill apt || true
+        pkill apt-get || true
+        pkill dpkg || true
+        rm -f /var/lib/dpkg/lock*
+        rm -f /var/cache/apt/archives/lock
+        rm -f /var/lib/apt/lists/lock
+        dpkg --configure -a || true
+        apt clean
+      changed_when: false
+      failed_when: false
 
-    - name: Install Apache (Debian/Ubuntu)
-      ansible.builtin.apt:
-        name: apache2
-        state: present
-      when: ansible_facts.os_family == 'Debian'
+    - name: Update package cache manually
+      shell: apt update
+      retries: 3
+      delay: 5
+      register: apt_update_result
+      until: apt_update_result.rc == 0
 
-    - name: Start and enable Apache (systemd)
-      ansible.builtin.service:
+    - name: Install Apache manually
+      shell: apt install -y apache2
+      register: apache_install
+      retries: 2
+      delay: 3
+
+    - name: Start and enable Apache
+      systemd:
         name: apache2
         state: started
         enabled: yes
-      when: ansible_facts.os_family == 'Debian'
+        daemon_reload: yes
 
-    - name: Create a simple index.html
-      ansible.builtin.copy:
+    - name: Verify Apache is running
+      shell: systemctl is-active apache2
+      register: apache_status
+      failed_when: apache_status.rc != 0
+
+    - name: Create custom index.html
+      copy:
         dest: /var/www/html/index.html
         content: |
-          <h1>Apache installed via Ansible over SSH 🎉</h1>
-          <p>Host: {{ inventory_hostname }}</p>
-          <p>Date: {{ ansible_date_time.date }} {{ ansible_date_time.time }}</p>
+          <!DOCTYPE html>
+          <html>
+          <head><title>Ansible Success!</title></head>
+          <body>
+            <h1>🎉 Apache installed via Ansible over SSH!</h1>
+            <p><strong>Host:</strong> {{ inventory_hostname }}</p>
+            <p><strong>User:</strong> {{ ansible_facts.user_id }}</p>
+            <p><strong>OS:</strong> {{ ansible_facts.distribution }} {{ ansible_facts.distribution_version }}</p>
+            <p><strong>Date:</strong> {{ ansible_date_time.date }} {{ ansible_date_time.time }}</p>
+            <p><strong>Apache Version:</strong> {{ ansible_facts.packages['apache2'][0].version | default('Unknown') }}</p>
+          </body>
+          </html>
         mode: '0644'
+
+    - name: Test Apache is responding
+      uri:
+        url: http://127.0.0.1
+        method: GET
+        status_code: 200
+      register: web_test
+
+    - name: Display success message
+      debug:
+        msg: |
+          ✅ Apache installation completed successfully!
+          🌐 Web server is accessible at: http://127.0.0.1
+          📊 HTTP Response: {{ web_test.status }}
+EOF
 ```
 
-### 4.1 Run the Apache Installation Playbook
+### 4.2 Advanced Playbook (If Simple Method Works)
+
+Create `examples/apache-ssh-advanced.yml`:
+
 ```bash
-# Run with sudo password prompt
-ansible-playbook -i examples/inventory-ssh-local.ini examples/apache-ssh.yml -K
+cat > examples/apache-ssh-advanced.yml << 'EOF'
+---
+- name: Install Apache with advanced error handling
+  hosts: ssh_local
+  become: yes
+  gather_facts: yes
+  vars:
+    apache_packages:
+      - apache2
+      - apache2-utils
+    apache_mods:
+      - rewrite
+      - ssl
 
-# Run with verbose output to see each step
-ansible-playbook -i examples/inventory-ssh-local.ini examples/apache-ssh.yml -K -v
+  tasks:
+    - name: Pre-flight system check
+      block:
+        - name: Check system resources
+          shell: |
+            echo "Disk space: $(df -h / | tail -1 | awk '{print $4}')"
+            echo "Memory: $(free -h | grep '^Mem:' | awk '{print $7}')"
+            echo "Network: $(ping -c1 8.8.8.8 >/dev/null 2>&1 && echo 'OK' || echo 'FAIL')"
+          register: system_check
 
-# Dry run (check mode) to see what would be changed
-ansible-playbook -i examples/inventory-ssh-local.ini examples/apache-ssh.yml -K --check
+        - name: Display system status
+          debug:
+            msg: "{{ system_check.stdout_lines }}"
+
+    - name: Clean package management system
+      block:
+        - name: Kill stuck processes
+          shell: pkill {{ item }} || true
+          loop: [apt, apt-get, dpkg, unattended-upgrades]
+          changed_when: false
+          failed_when: false
+
+        - name: Remove lock files
+          file:
+            path: "{{ item }}"
+            state: absent
+          loop:
+            - /var/lib/dpkg/lock
+            - /var/lib/dpkg/lock-frontend
+            - /var/cache/apt/archives/lock
+            - /var/lib/apt/lists/lock
+          failed_when: false
+
+        - name: Configure interrupted packages
+          command: dpkg --configure -a
+          failed_when: false
+          changed_when: false
+
+    - name: Update and install packages
+      block:
+        - name: Update apt cache with timeout
+          apt:
+            update_cache: yes
+            cache_valid_time: 0
+          timeout: 300
+          retries: 3
+          delay: 10
+          register: apt_result
+          until: apt_result is succeeded
+
+        - name: Install Apache packages
+          apt:
+            name: "{{ apache_packages }}"
+            state: present
+            update_cache: no
+          retries: 3
+          delay: 5
+
+        - name: Enable Apache modules
+          apache2_module:
+            name: "{{ item }}"
+            state: present
+          loop: "{{ apache_mods }}"
+          notify: restart apache
+
+    - name: Configure and start Apache
+      block:
+        - name: Ensure Apache is started and enabled
+          systemd:
+            name: apache2
+            state: started
+            enabled: yes
+            daemon_reload: yes
+
+        - name: Wait for Apache to be ready
+          wait_for:
+            port: 80
+            host: 127.0.0.1
+            delay: 2
+            timeout: 30
+
+        - name: Create enhanced index page
+          template:
+            dest: /var/www/html/index.html
+            content: |
+              <!DOCTYPE html>
+              <html lang="en">
+              <head>
+                  <meta charset="UTF-8">
+                  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                  <title>Ansible Apache Deployment</title>
+                  <style>
+                      body { font-family: Arial, sans-serif; margin: 40px; background: #f4f4f4; }
+                      .container { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+                      .success { color: #28a745; }
+                      .info { background: #e9f4ff; padding: 10px; border-left: 4px solid #007bff; margin: 10px 0; }
+                  </style>
+              </head>
+              <body>
+                  <div class="container">
+                      <h1 class="success">🎉 Apache Successfully Deployed via Ansible SSH!</h1>
+                      
+                      <div class="info">
+                          <h3>📊 System Information</h3>
+                          <p><strong>Target Host:</strong> {{ inventory_hostname }}</p>
+                          <p><strong>Connected User:</strong> {{ ansible_facts.user_id }}</p>
+                          <p><strong>Operating System:</strong> {{ ansible_facts.distribution }} {{ ansible_facts.distribution_version }}</p>
+                          <p><strong>Kernel:</strong> {{ ansible_facts.kernel }}</p>
+                          <p><strong>Architecture:</strong> {{ ansible_facts.architecture }}</p>
+                      </div>
+
+                      <div class="info">
+                          <h3>🕒 Deployment Details</h3>
+                          <p><strong>Date:</strong> {{ ansible_date_time.date }}</p>
+                          <p><strong>Time:</strong> {{ ansible_date_time.time }}</p>
+                          <p><strong>Timezone:</strong> {{ ansible_date_time.tz }}</p>
+                          <p><strong>Ansible Version:</strong> {{ ansible_version.full }}</p>
+                      </div>
+
+                      <div class="info">
+                          <h3>🔧 Apache Configuration</h3>
+                          <p><strong>Document Root:</strong> /var/www/html</p>
+                          <p><strong>Configuration:</strong> /etc/apache2/apache2.conf</p>
+                          <p><strong>Enabled Modules:</strong> {{ apache_mods | join(', ') }}</p>
+                      </div>
+
+                      <h3>✅ Deployment Status: SUCCESS</h3>
+                      <p>This page was generated automatically by Ansible playbook execution.</p>
+                  </div>
+              </body>
+              </html>
+            mode: '0644'
+          notify: restart apache
+
+    - name: Final verification
+      block:
+        - name: Test HTTP response
+          uri:
+            url: http://127.0.0.1
+            method: GET
+            status_code: 200
+            return_content: yes
+          register: http_test
+
+        - name: Verify Apache configuration
+          command: apache2ctl configtest
+          register: config_test
+          changed_when: false
+
+        - name: Display deployment summary
+          debug:
+            msg: |
+              🎉 APACHE DEPLOYMENT COMPLETED SUCCESSFULLY! 🎉
+              
+              📍 Access your web server: http://127.0.0.1
+              📊 HTTP Status: {{ http_test.status }}
+              ⚙️  Config Test: {{ config_test.stdout }}
+              📁 Document Root: /var/www/html
+              📋 Log Files: /var/log/apache2/
+              
+              🔧 Management Commands:
+              - sudo systemctl status apache2
+              - sudo systemctl restart apache2
+              - sudo apache2ctl configtest
+
+  handlers:
+    - name: restart apache
+      systemd:
+        name: apache2
+        state: restarted
+EOF
+```
+
+### 4.3 Run the Apache Installation Playbook
+
+**Start with the simple method:**
+
+```bash
+# Run the simple playbook first
+ansible-playbook -i examples/inventory-ssh-local.ini examples/apache-ssh-simple.yml -K
+
+# If you want to see detailed output
+ansible-playbook -i examples/inventory-ssh-local.ini examples/apache-ssh-simple.yml -K -v
+
+# For troubleshooting, use extra verbose output
+ansible-playbook -i examples/inventory-ssh-local.ini examples/apache-ssh-simple.yml -K -vvv
+```
+
+**If the simple method works, try the advanced version:**
+
+```bash
+# Run the advanced playbook
+ansible-playbook -i examples/inventory-ssh-local.ini examples/apache-ssh-advanced.yml -K
+
+# Dry run to see what would be changed (recommended first)
+ansible-playbook -i examples/inventory-ssh-local.ini examples/apache-ssh-advanced.yml -K --check
+```
+
+**Expected Output (Simple Method):**
+```
+PLAY [Install Apache via SSH (Simple Method)] ****
+
+TASK [Gathering Facts] ****
+ok: [127.0.0.1]
+
+TASK [Ensure apt is unlocked and clean] ****
+ok: [127.0.0.1]
+
+TASK [Update package cache manually] ****
+changed: [127.0.0.1]
+
+TASK [Install Apache manually] ****
+changed: [127.0.0.1]
+
+TASK [Start and enable Apache] ****
+changed: [127.0.0.1]
+
+TASK [Verify Apache is running] ****
+ok: [127.0.0.1]
+
+TASK [Create custom index.html] ****
+changed: [127.0.0.1]
+
+TASK [Test Apache is responding] ****
+ok: [127.0.0.1]
+
+TASK [Display success message] ****
+ok: [127.0.0.1] => {
+    "msg": "✅ Apache installation completed successfully!\n🌐 Web server is accessible at: http://127.0.0.1\n📊 HTTP Response: 200"
+}
+
+PLAY RECAP ****
+127.0.0.1 : ok=9 changed=4 unreachable=0 failed=0
 ```
 
 ## 🔎 Step 5: Verify Apache Installation
@@ -653,12 +946,28 @@ ps aux | grep apache2
 
 ### 5.2 Test Web Server
 ```bash
-# Test with curl (command line)
+# Quick HTTP status check
 curl -I http://127.0.0.1
+
+# View the full page
 curl http://127.0.0.1
 
-# Check the custom page created by Ansible
-curl -s http://127.0.0.1 | grep "Apache installed via Ansible"
+# Check specific content
+curl -s http://127.0.0.1 | grep -i "apache.*ansible"
+
+# Test with wget (alternative)
+wget -qO- http://127.0.0.1 | head -10
+
+# Advanced testing
+curl -w "Response Time: %{time_total}s\nHTTP Code: %{http_code}\n" -s -o /dev/null http://127.0.0.1
+```
+
+**Expected curl output:**
+```
+HTTP/1.1 200 OK
+Date: [current date]
+Server: Apache/2.4.xx (Ubuntu)
+Content-Type: text/html
 ```
 
 ### 5.3 Browser Test
@@ -678,27 +987,197 @@ sudo tail -f /var/log/apache2/access.log
 sudo tail -f /var/log/apache2/error.log
 ```
 
-## 🧪 Advanced Variations and Troubleshooting
+## 🧪 Troubleshooting and Advanced Options
 
-### Common Ansible/Apache Issues
+### Quick Diagnostic Script
 
-#### Issue: "Failed to update apt cache: unknown reason"
+Create a comprehensive diagnostic script:
 
-This is a common error when running the Apache installation playbook.
-
-**Immediate Diagnostic Steps:**
 ```bash
-# Step 1: Check if you can SSH and run basic commands
-ssh 127.0.0.1 "whoami && date"
+cat > examples/diagnose-system.sh << 'EOF'
+#!/bin/bash
+echo "=== ANSIBLE SSH APACHE DIAGNOSTIC SCRIPT ==="
+echo "Date: $(date)"
+echo "User: $(whoami)"
+echo
 
-# Step 2: Check current apt status
-ssh 127.0.0.1 "sudo apt list --upgradable | head -5"
+echo "1. SSH Connectivity Test:"
+ssh -o ConnectTimeout=5 127.0.0.1 "echo 'SSH: ✅ Connected'" 2>/dev/null || echo "SSH: ❌ Failed"
+echo
 
-# Step 3: Check for apt locks
-ssh 127.0.0.1 "sudo lsof /var/lib/dpkg/lock* 2>/dev/null || echo 'No locks found'"
+echo "2. System Resources:"
+echo "Disk Space: $(df -h / | tail -1 | awk '{print $4}') available"
+echo "Memory: $(free -h | grep '^Mem:' | awk '{print $7}') available"
+echo "Load: $(uptime | awk -F'load average:' '{print $2}')"
+echo
 
-# Step 4: Test manual apt update
-ssh 127.0.0.1 "sudo apt update"
+echo "3. Network Connectivity:"
+ping -c1 8.8.8.8 >/dev/null 2>&1 && echo "Internet: ✅ Connected" || echo "Internet: ❌ No connection"
+nslookup archive.ubuntu.com >/dev/null 2>&1 && echo "DNS: ✅ Working" || echo "DNS: ❌ Failed"
+echo
+
+echo "4. Package Management Status:"
+ps aux | grep -E "(apt|dpkg)" | grep -v grep | wc -l | awk '{if($1>0) print "Apt processes: ❌ " $1 " running"; else print "Apt processes: ✅ None running"}'
+ls /var/lib/dpkg/lock* 2>/dev/null | wc -l | awk '{if($1>0) print "Lock files: ❌ " $1 " present"; else print "Lock files: ✅ None found"}'
+echo
+
+echo "5. Apache Status:"
+if systemctl is-active apache2 >/dev/null 2>&1; then
+    echo "Apache: ✅ Running"
+    echo "Port 80: $(ss -tlnp | grep :80 >/dev/null && echo '✅ Listening' || echo '❌ Not listening')"
+else
+    echo "Apache: ❌ Not running"
+fi
+echo
+
+echo "6. Suggested Actions:"
+if ! ssh -o ConnectTimeout=5 127.0.0.1 "exit" >/dev/null 2>&1; then
+    echo "- Fix SSH connectivity first"
+fi
+
+if ps aux | grep -E "(apt|dpkg)" | grep -v grep >/dev/null; then
+    echo "- Kill stuck package management processes: sudo pkill apt; sudo pkill dpkg"
+fi
+
+if ls /var/lib/dpkg/lock* >/dev/null 2>&1; then
+    echo "- Remove lock files: sudo rm /var/lib/dpkg/lock*"
+fi
+
+if ! ping -c1 8.8.8.8 >/dev/null 2>&1; then
+    echo "- Check internet connection"
+fi
+
+echo "=== END DIAGNOSTIC ==="
+EOF
+
+chmod +x examples/diagnose-system.sh
+./examples/diagnose-system.sh
+```
+
+### Emergency Fix Script
+
+Create an automated fix script for common issues:
+
+```bash
+cat > examples/emergency-fix.sh << 'EOF'
+#!/bin/bash
+echo "=== EMERGENCY ANSIBLE/APACHE FIX SCRIPT ==="
+echo "This script will attempt to fix common issues..."
+echo
+
+# Function to run commands with error handling
+safe_run() {
+    echo "Running: $1"
+    eval "$1" && echo "✅ Success" || echo "❌ Failed (continuing...)"
+    echo
+}
+
+echo "1. Killing stuck processes..."
+safe_run "sudo pkill apt"
+safe_run "sudo pkill apt-get" 
+safe_run "sudo pkill dpkg"
+safe_run "sudo pkill unattended-upgrades"
+
+echo "2. Removing lock files..."
+safe_run "sudo rm -f /var/lib/dpkg/lock*"
+safe_run "sudo rm -f /var/cache/apt/archives/lock"
+safe_run "sudo rm -f /var/lib/apt/lists/lock"
+
+echo "3. Configuring interrupted packages..."
+safe_run "sudo dpkg --configure -a"
+
+echo "4. Cleaning package cache..."
+safe_run "sudo apt clean"
+safe_run "sudo apt autoclean"
+
+echo "5. Updating package lists..."
+safe_run "sudo apt update"
+
+echo "6. Testing SSH connectivity..."
+safe_run "ssh -o ConnectTimeout=5 127.0.0.1 'echo SSH test successful'"
+
+echo "7. Checking if Apache is installed..."
+if dpkg -l | grep apache2 >/dev/null 2>&1; then
+    echo "Apache2 is already installed"
+    safe_run "sudo systemctl start apache2"
+    safe_run "sudo systemctl enable apache2"
+else
+    echo "Apache2 not installed - will be installed by playbook"
+fi
+
+echo "=== FIX SCRIPT COMPLETED ==="
+echo "You can now try running your Ansible playbook again."
+EOF
+
+chmod +x examples/emergency-fix.sh
+```
+
+### Common Issues and Solutions
+
+#### Issue 1: "Failed to update apt cache"
+
+**Quick Fix:**
+```bash
+# Run the emergency fix script
+./examples/emergency-fix.sh
+
+# Then retry with the simple playbook
+ansible-playbook -i examples/inventory-ssh-local.ini examples/apache-ssh-simple.yml -K
+```
+
+#### Issue 2: SSH Connection Problems
+
+**Diagnosis:**
+```bash
+# Test SSH directly
+ssh -vvv 127.0.0.1
+
+# Check SSH service
+sudo systemctl status ssh
+
+# Check SSH configuration
+sudo sshd -T | grep -E "(pubkey|password|auth)"
+```
+
+**Fix:**
+```bash
+# Restart SSH service
+sudo systemctl restart ssh
+
+# Reset SSH keys if needed
+rm -f ~/.ssh/id_rsa ~/.ssh/id_rsa.pub ~/.ssh/authorized_keys
+ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa -N ""
+cat ~/.ssh/id_rsa.pub >> ~/.ssh/authorized_keys
+chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys ~/.ssh/id_rsa
+```
+
+#### Issue 3: Package Installation Failures
+
+**Manual Installation Test:**
+```bash
+# Test manual installation
+ssh 127.0.0.1 "sudo apt update && sudo apt install -y apache2"
+
+# If that fails, try:
+ssh 127.0.0.1 "sudo apt-get update && sudo apt-get install -y apache2"
+```
+
+#### Issue 4: Apache Won't Start
+
+**Diagnosis and Fix:**
+```bash
+# Check Apache status and logs
+sudo systemctl status apache2
+sudo journalctl -u apache2 --no-pager -l
+
+# Test Apache configuration
+sudo apache2ctl configtest
+
+# Check for port conflicts
+sudo netstat -tlnp | grep :80
+
+# Manual start
+sudo systemctl start apache2
 ```
 
 **Quick Fix Methods:**
@@ -891,13 +1370,108 @@ ansible-playbook -i examples/inventory-ssh-local.ini examples/apache-ssh.yml -k 
 ansible-playbook -i examples/inventory-ssh-local.ini examples/apache-ssh.yml -K --limit 127.0.0.1
 ```
 
-### Passwordless Sudo Setup (Optional)
+### Ultimate Fallback Method
+
+If all else fails, here's a minimal working playbook:
+
+```bash
+cat > examples/apache-ssh-minimal.yml << 'EOF'
+---
+- name: Minimal Apache installation (Fallback)
+  hosts: ssh_local
+  become: yes
+  gather_facts: no
+
+  tasks:
+    - name: Install Apache using raw commands
+      raw: |
+        pkill apt || true
+        rm -f /var/lib/dpkg/lock* /var/cache/apt/archives/lock /var/lib/apt/lists/lock
+        apt clean
+        apt update -y
+        apt install -y apache2
+        systemctl enable apache2
+        systemctl start apache2
+        echo '<h1>Apache installed via Ansible (Minimal Method)</h1>' > /var/www/html/index.html
+
+    - name: Verify installation
+      raw: systemctl is-active apache2 && curl -s http://127.0.0.1 | head -1
+      register: verify_result
+
+    - name: Show result
+      debug:
+        msg: "{{ verify_result.stdout_lines }}"
+EOF
+
+# Run the minimal playbook
+ansible-playbook -i examples/inventory-ssh-local.ini examples/apache-ssh-minimal.yml -K
+```
+
+### Passwordless Sudo Setup (Recommended)
+
 ```bash
 # Add your user to sudoers for passwordless sudo
 echo "$USER ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/$USER
 
+# Verify the setting
+sudo -n whoami 2>/dev/null && echo "Passwordless sudo: ✅ Working" || echo "Passwordless sudo: ❌ Not working"
+
 # Then run without -K flag
-ansible-playbook -i examples/inventory-ssh-local.ini examples/apache-ssh.yml
+ansible-playbook -i examples/inventory-ssh-local.ini examples/apache-ssh-simple.yml
+```
+
+### Complete Test and Verification Script
+
+```bash
+cat > examples/complete-test.sh << 'EOF'
+#!/bin/bash
+echo "=== COMPLETE APACHE ANSIBLE TEST ==="
+
+# Step 1: Run diagnostics
+echo "🔍 Running diagnostics..."
+./examples/diagnose-system.sh
+
+# Step 2: Run emergency fixes if needed
+read -p "Run emergency fixes? (y/n): " -n 1 -r
+echo
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+    echo "🛠️ Running emergency fixes..."
+    ./examples/emergency-fix.sh
+fi
+
+# Step 3: Test SSH connectivity
+echo "🔗 Testing SSH connectivity..."
+if ssh -o ConnectTimeout=5 127.0.0.1 "whoami" >/dev/null 2>&1; then
+    echo "✅ SSH connectivity working"
+else
+    echo "❌ SSH connectivity failed - fix SSH first!"
+    exit 1
+fi
+
+# Step 4: Run Ansible playbook
+echo "🚀 Running Ansible playbook..."
+echo "Trying simple method first..."
+if ansible-playbook -i examples/inventory-ssh-local.ini examples/apache-ssh-simple.yml -K; then
+    echo "✅ Simple method successful!"
+else
+    echo "❌ Simple method failed, trying minimal method..."
+    ansible-playbook -i examples/inventory-ssh-local.ini examples/apache-ssh-minimal.yml -K
+fi
+
+# Step 5: Verify installation
+echo "🧪 Testing Apache installation..."
+if curl -s http://127.0.0.1 >/dev/null 2>&1; then
+    echo "✅ Apache is responding on http://127.0.0.1"
+    echo "📄 Page content preview:"
+    curl -s http://127.0.0.1 | head -5
+else
+    echo "❌ Apache is not responding"
+fi
+
+echo "=== TEST COMPLETED ==="
+EOF
+
+chmod +x examples/complete-test.sh
 ```
 
 ## 💡 Note for WSL Users (Windows Subsystem for Linux)
@@ -906,4 +1480,54 @@ ansible-playbook -i examples/inventory-ssh-local.ini examples/apache-ssh.yml
 - If managing Windows outside WSL, use WinRM instead of SSH (not covered here)
 
 ---
-This pattern mirrors real-world remote automation while staying on a single machine. Perfect for practicing SSH-based workflows safely.
+
+## 📋 Quick Start Summary (TL;DR)
+
+**If you just want to get it working fast:**
+
+```bash
+# 1. Make scripts executable
+chmod +x examples/*.sh
+
+# 2. Run the complete automated test
+./examples/complete-test.sh
+
+# 3. Or run individual steps:
+./examples/diagnose-system.sh        # Check system status
+./examples/emergency-fix.sh          # Fix common issues
+ansible-playbook -i examples/inventory-ssh-local.ini examples/apache-ssh-simple.yml -K
+```
+
+**Expected Success Indicators:**
+- ✅ SSH connectivity working
+- ✅ Apache service running
+- ✅ HTTP 200 response from http://127.0.0.1
+- ✅ Custom HTML page displaying system information
+
+**If Simple Method Fails:**
+```bash
+# Try the minimal fallback method
+ansible-playbook -i examples/inventory-ssh-local.ini examples/apache-ssh-minimal.yml -K
+```
+
+**Manual Verification:**
+```bash
+# Check Apache is running
+sudo systemctl status apache2
+
+# Test web server
+curl http://127.0.0.1
+
+# View logs if problems occur
+sudo journalctl -u apache2 --no-pager -l
+```
+
+---
+
+This revised exercise provides multiple approaches:
+1. **Simple Method**: Uses shell commands to bypass apt module issues
+2. **Advanced Method**: Full-featured with proper error handling  
+3. **Minimal Method**: Raw commands as ultimate fallback
+4. **Diagnostic Tools**: Scripts to identify and fix common problems
+
+Perfect for practicing SSH-based Ansible workflows with Ubuntu systems!
