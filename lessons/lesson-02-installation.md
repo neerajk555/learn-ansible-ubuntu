@@ -25,9 +25,6 @@ First, let's make sure your Ubuntu system is up to date:
 ```bash
 # Update the package list (like refreshing an app store)
 sudo apt update
-
-# Optionally upgrade existing packages (recommended for clean setup)
-sudo apt upgrade -y
 ```
 
 **What's happening:** Ubuntu checks for the latest versions of all available software.
