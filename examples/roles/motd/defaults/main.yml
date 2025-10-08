@@ -1,0 +1,10 @@
+---
+# defaults file for motd
+system_manager: "admin@company.com"
+environment: "development"
+maintenance_window: "Sundays 2:00-4:00 AM UTC"
+motd_notice: "This system is managed by Ansible automation"
+
+# Role configuration
+motd_backup_original: yes
+motd_file_permissions: "0644"

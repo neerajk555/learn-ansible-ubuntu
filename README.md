@@ -123,6 +123,7 @@ Ready for additional challenges? Try these practical exercises:
 | [Node.js Installation](exercises/nodejs-installation.md) | Automated Node.js and npm setup with sample app | Beginner | 45 min |
 | [Node.js on Remote Server](exercises/nodejs-remote-installation.md) | SSH-based install with inventory, Python bootstrap, and sample app | Intermediate | 60 min |
 | [Apache over SSH (localhost)](exercises/apache-ssh-local.md) | Establish SSH connectivity to 127.0.0.1 and install Apache | Beginner | 30 min |
+| [Creating Ansible Roles (MOTD)](exercises/ansible-roles-motd.md) | Build reusable roles with tasks, templates, variables, and handlers | Intermediate | 90 min |
 
 More exercises coming soon! Each exercise includes:
 - Complete playbook examples

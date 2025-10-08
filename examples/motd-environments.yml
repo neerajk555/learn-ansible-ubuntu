@@ -1,0 +1,26 @@
+---
+- name: Deploy MOTD for development environment
+  hosts: ssh_local
+  become: yes
+  gather_facts: yes
+  vars:
+    env_type: "dev"
+
+  roles:
+    - role: motd
+      system_manager: "dev-team@company.com"
+      environment: "{{ env_type }}"
+      maintenance_window: "Daily 3:00-4:00 AM"
+      motd_notice: "Development system - frequent changes expected"
+
+- name: Show current MOTD content (verification task)
+  hosts: ssh_local
+  gather_facts: no
+  tasks:
+    - name: Display current MOTD
+      command: cat /etc/motd
+      register: current_motd
+      
+    - name: Show MOTD content
+      debug:
+        msg: "{{ current_motd.stdout_lines }}"

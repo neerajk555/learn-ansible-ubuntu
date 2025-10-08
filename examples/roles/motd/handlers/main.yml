@@ -1,0 +1,5 @@
+---
+# handlers file for motd
+- name: display motd change
+  debug:
+    msg: "MOTD file has been updated on {{ inventory_hostname }}"

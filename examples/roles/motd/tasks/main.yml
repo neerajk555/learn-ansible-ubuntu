@@ -1,0 +1,17 @@
+---
+# tasks file for motd
+- name: Create custom MOTD from template
+  template:
+    src: motd.j2
+    dest: /etc/motd
+    owner: root
+    group: root
+    mode: '0644'
+    backup: yes
+  notify: display motd change
+
+- name: Ensure MOTD is readable by all users
+  file:
+    path: /etc/motd
+    state: file
+    mode: '0644'

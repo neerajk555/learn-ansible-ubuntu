@@ -1,0 +1,12 @@
+---
+- name: Deploy MOTD role to managed hosts
+  hosts: ssh_local
+  become: yes
+  gather_facts: yes
+
+  roles:
+    - role: motd
+      system_manager: "ansible-admin@localhost.local"
+      environment: "testing"
+      maintenance_window: "Weekends 1:00-3:00 AM"
+      motd_notice: "Learning Ansible roles - SSH localhost setup"
