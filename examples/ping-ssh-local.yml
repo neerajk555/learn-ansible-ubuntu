@@ -1,0 +1,36 @@
+---
+- name: Test SSH connectivity to localhost
+  hosts: ssh_local
+  gather_facts: yes
+  tasks:
+    - name: Ping the host over SSH
+      ansible.builtin.ping:
+      
+    - name: Display connection info
+      ansible.builtin.debug:
+        msg: |
+          Connected to: {{ inventory_hostname }}
+          OS Family: {{ ansible_facts.os_family }}
+          User: {{ ansible_facts.user_id }}
+          Python: {{ ansible_facts.python_version }}
+          
+    - name: Show we can run commands
+      ansible.builtin.command: whoami
+      register: whoami_result
+      
+    - name: Display command result
+      ansible.builtin.debug:
+        msg: "Command 'whoami' returned: {{ whoami_result.stdout }}"name: Test SSH connectivity to localhost
+  hosts: ssh_local
+  gather_facts: yes
+  tasks:
+    - name: Ping the host over SSH
+      ansible.builtin.ping:
+      
+    - name: Display connection info
+      ansible.builtin.debug:
+        msg: |
+          Connected to: {{ inventory_hostname }}
+          OS Family: {{ ansible_facts.os_family }}
+          User: {{ ansible_facts.user_id }}
+          Python: {{ ansible_facts.python_version }}
